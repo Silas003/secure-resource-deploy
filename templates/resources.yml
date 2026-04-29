@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-0'
+
+Description: 'Cloudformation template for deploying several resources in a custom vpc'
+
+MetaData:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'General Parameters'
+
+        Parameter:
+          - ec2InstanceName1
+          - ec2InstanceName2
+          - ami
+          - azName1
+          - azName2
+          - vpcName
+          - publicSubnet1
+          - privateSubnet1
+          - publicSubnet2
+          - privateSubnet2
+          - internetGateway
+          - NatGateway1
+          - NatGateway2
+
+
+Parameter:
+
+
+
+
+Resources:
+  CustomVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: true
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref azName1
+      VpcId: !Ref CustomVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref azName2
+      VpcId: !Ref CustomVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+
+    PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        AvailabilityZone: !Ref azName1
+        VpcId: !Ref CustomVPC
+        CidrBlock: 10.0.2.0/24
+        MapPublicIpOnLaunch: false
+
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        AvailabilityZone: !Ref azName2
+        VpcId: !Ref CustomVPC
+        CidrBlock: 10.0.3.0/24
+        MapPublicIpOnLaunch: false
+
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      DependsOn: CustomVPC
+
+    ElasticIP1:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+
+    ElasticIP2:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+
+    NatGateway1:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt ElasticIP1.AllocationId
+        SubnetId: !Ref PublicSubnet1
+
+    NatGateway2:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt ElasticIP2.AllocationId
+        SubnetId: !Ref PublicSubnet2
+
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref CustomVPC
+        InternetGatewayId: !Ref InternetGateway
+
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref CustomVPC
+
+    PrivateRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref CustomVPC
+
+    RouteTrafficToIGW:
+      Type: AWS::EC2::Route
+      DependsOn:
+        - AttachGateway
+        - InternetGateway
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
+
+    RouteTrafficToNAT:
+      Type: AWS::EC2::Route
+      DependsOn:
+        - NatGateway1
+        - NatGateway2
+        - PrivateSubnet1
+        - PrivateSubnet2
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable
+        NatGatewayId:
+          - !Ref NatGateway1
+          - !Ref NatGateway2
+        DestinationCidrBlock: 0.0.0.0/0
+
+
+    PublicSubnetRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet1
+        RouteTableId: !Ref PublicRouteTable
+
+    PublicSubnetRouteTableAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet2
+        RouteTableId: !Ref PublicRouteTable
+
+    PrivateSubnetRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnet1
+        RouteTableId: !Ref PrivateRouteTable
+
+    PrivateSubnetRouteTableAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnet2
+        RouteTableId: !Ref PrivateRouteTable
+
+    InstanceSecurityGroup1:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Security Group for EC2 Instances
+        VpcId: !Ref CustomVPC
+        SecurityGroupIngress:
+          - IpProtocol: http
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+
+          - IpProtocol: tcp
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+
+    EC2Instance1:
+      Type: AWS::EC2::Instance
+      Properties:
+        InstanceType: t2.micro
+        ImageId: !Ref ami
+        SubnetId: !Ref PublicSubnet1
+        Tags:
+          - Key: Name
+            Value: !Ref ec2InstanceName1
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup1
+        IamInstanceProfile: !Ref InstanceProfile
+
+    EC2Instance2:
+      Type: AWS::EC2::Instance
+      Properties:
+        InstanceType: t2.micro
+        ImageId: !Ref ami
+        SubnetId: !Ref PublicSubnet2
+        Tags:
+          - Key: Name
+            Value: !Ref ec2InstanceName2
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup1
+        IamInstanceProfile: !Ref InstanceProfile
+
+    EC2Instance3:
+      Type: AWS::EC2::Instance
+      Properties:
+        InstanceType: t2.micro
+        ImageId: !Ref ami
+        SubnetId: !Ref PrivateSubnet1
+        Tags:
+          - Key: Name
+            Value: !Ref ec2InstanceName3
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        IamInstanceProfile: !Ref InstanceProfile
+
+    EC2Instance4:
+      Type: AWS::EC2::Instance
+      Properties:
+        InstanceType: t2.micro
+        ImageId: !Ref ami
+        SubnetId: !Ref PrivateSubnet2
+        Tags:
+          - Key: Name
+            Value: !Ref ec2InstanceName4
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        IamInstanceProfile: !Ref InstanceProfile
+
+    SystemsManagerIAMRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - ec2.amazonaws.com
+              Action:
+                - 'sts:AssumeRole'
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+
+    SystemsManagerIntegration:
+      Type: AWS::SSM::Association
+      Properties:
+
