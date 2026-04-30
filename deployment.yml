@@ -1,1 +1,3 @@
-template-path: templates/resources.yml
+template-file-path: templates/resources.yml
+parameters: {}
+tags: {}
