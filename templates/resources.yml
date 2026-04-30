@@ -41,21 +41,22 @@ Parameters:
     Description: 'Name tag for the second private EC2 instance (AZ2)'
 
   ami:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
-    Description: 'Amazon Linux 2023 AMI '
+    Type: AWS::EC2::Image::Id
+    Default: 'ami-0f61de2873e29e866'
+    Description: 'Amazon Linux 2 AMI'
 
   azName1:
     Type: AWS::EC2::AvailabilityZone::Name
     Default: 'eu-west-3a'
-    Description: 'First Availability Zone '
+    Description: 'First Availability Zone'
 
   azName2:
     Type: AWS::EC2::AvailabilityZone::Name
     Default: 'eu-west-3b'
-    Description: 'Second Availability Zone '
+    Description: 'Second Availability Zone'
 
 Resources:
+
 
   CustomVPC:
     Type: AWS::EC2::VPC
@@ -111,6 +112,7 @@ Resources:
       Tags:
         - Key: Name
           Value: PrivateSubnet-AZ2
+
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -200,7 +202,7 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable1
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway1   # FIX: single value only (not a list)
+      NatGatewayId: !Ref NatGateway1
 
   PrivateSubnetRouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -222,14 +224,13 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway2   # routes through AZ2's NAT — no cross-AZ dependency
+      NatGatewayId: !Ref NatGateway2
 
   PrivateSubnetRouteTableAssociation2:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
-
 
   PublicInstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -254,7 +255,7 @@ Resources:
   PrivateInstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: 'Private EC2 instances - ICMP from VPC only. No SSH, no HTTP from internet.'
+      GroupDescription: 'Private EC2 instances - ICMP from VPC only. No SSH.'
       VpcId: !Ref CustomVPC
       SecurityGroupIngress:
         - IpProtocol: icmp
@@ -377,6 +378,9 @@ Resources:
 
   EC2Instance3:
     Type: AWS::EC2::Instance
+    DependsOn:
+      - NatGateway1
+      - RoutePrivateToNAT1
     Properties:
       InstanceType: t2.micro
       ImageId: !Ref ami
@@ -390,6 +394,9 @@ Resources:
 
   EC2Instance4:
     Type: AWS::EC2::Instance
+    DependsOn:
+      - NatGateway2
+      - RoutePrivateToNAT2
     Properties:
       InstanceType: t2.micro
       ImageId: !Ref ami
@@ -400,6 +407,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref ec2InstanceName4
+
 
   SystemsManagerIntegration:
     Type: AWS::SSM::Association
@@ -417,22 +425,22 @@ Outputs:
     Description: 'VPC ID'
     Value: !Ref CustomVPC
 
-  PublicInstance1Id:
-    Description: 'Public EC2 Instance 1 (AZ1) — open this IP in a browser'
+  PublicInstance1IP:
+    Description: 'Public IP of EC2Instance1 (AZ1) - open in browser to verify Apache'
     Value: !GetAtt EC2Instance1.PublicIp
 
-  PublicInstance2Id:
-    Description: 'Public EC2 Instance 2 (AZ2) — open this IP in a browser'
+  PublicInstance2IP:
+    Description: 'Public IP of EC2Instance2 (AZ2) - open in browser to verify Apache'
     Value: !GetAtt EC2Instance2.PublicIp
 
   PrivateInstance1Id:
-    Description: 'Private EC2 Instance 3 (AZ1) — access via Session Manager only'
+    Description: 'Instance ID of EC2Instance3 (AZ1) - connect via Session Manager'
     Value: !Ref EC2Instance3
 
   PrivateInstance2Id:
-    Description: 'Private EC2 Instance 4 (AZ2) — access via Session Manager only'
+    Description: 'Instance ID of EC2Instance4 (AZ2) - connect via Session Manager'
     Value: !Ref EC2Instance4
 
   SSMRoleArn:
-    Description: 'IAM Role ARN used by all EC2 instances for SSM access'
+    Description: 'IAM Role ARN attached to all EC2 instances for SSM access'
     Value: !GetAtt SystemsManagerIAMRole.Arn
