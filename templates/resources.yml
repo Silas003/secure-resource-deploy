@@ -1,42 +1,70 @@
-AWSTemplateFormatVersion: '2010-09-0'
+AWSTemplateFormatVersion: '2010-09-09'
 
-Description: 'Cloudformation template for deploying several resources in a custom vpc'
+Description: 'CloudFormation template for a highly available, secure, multi-AZ VPC with public and private EC2 instances managed exclusively via AWS Systems Manager Session Manager.'
 
-MetaData:
+Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: 'General Parameters'
-
-        Parameter:
+          default: 'Instance Configuration'
+        Parameters:
           - ec2InstanceName1
           - ec2InstanceName2
+          - ec2InstanceName3
+          - ec2InstanceName4
           - ami
+      - Label:
+          default: 'Network Configuration'
+        Parameters:
           - azName1
           - azName2
-          - vpcName
-          - publicSubnet1
-          - privateSubnet1
-          - publicSubnet2
-          - privateSubnet2
-          - internetGateway
-          - NatGateway1
-          - NatGateway2
 
+Parameters:
+  ec2InstanceName1:
+    Type: String
+    Default: 'PublicInstance-AZ1'
+    Description: 'Name tag for the first public EC2 instance (AZ1)'
 
-Parameter:
+  ec2InstanceName2:
+    Type: String
+    Default: 'PublicInstance-AZ2'
+    Description: 'Name tag for the second public EC2 instance (AZ2)'
 
+  ec2InstanceName3:
+    Type: String
+    Default: 'PrivateInstance-AZ1'
+    Description: 'Name tag for the first private EC2 instance (AZ1)'
 
+  ec2InstanceName4:
+    Type: String
+    Default: 'PrivateInstance-AZ2'
+    Description: 'Name tag for the second private EC2 instance (AZ2)'
 
+  ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+    Description: 'Amazon Linux 2023 AMI (auto-resolved from SSM Parameter Store)'
+
+  azName1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: 'First Availability Zone (e.g. us-east-1a)'
+
+  azName2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: 'Second Availability Zone (e.g. us-east-1b)'
 
 Resources:
+
   CustomVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
-      InstanceTenancy: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: CustomVPC
 
   PublicSubnet1:
     Type: AWS::EC2::Subnet
@@ -45,6 +73,9 @@ Resources:
       VpcId: !Ref CustomVPC
       CidrBlock: 10.0.0.0/24
       MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet-AZ1
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
@@ -53,198 +84,353 @@ Resources:
       VpcId: !Ref CustomVPC
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet-AZ2
 
-    PrivateSubnet1:
-      Type: AWS::EC2::Subnet
-      Properties:
-        AvailabilityZone: !Ref azName1
-        VpcId: !Ref CustomVPC
-        CidrBlock: 10.0.2.0/24
-        MapPublicIpOnLaunch: false
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref azName1
+      VpcId: !Ref CustomVPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet-AZ1
 
-    PrivateSubnet2:
-      Type: AWS::EC2::Subnet
-      Properties:
-        AvailabilityZone: !Ref azName2
-        VpcId: !Ref CustomVPC
-        CidrBlock: 10.0.3.0/24
-        MapPublicIpOnLaunch: false
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref azName2
+      VpcId: !Ref CustomVPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet-AZ2
 
-    InternetGateway:
-      Type: AWS::EC2::InternetGateway
-      DependsOn: CustomVPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: CustomVPC
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CustomVPC-IGW
 
-    ElasticIP1:
-      Type: AWS::EC2::EIP
-      Properties:
-        Domain: vpc
-
-    ElasticIP2:
-      Type: AWS::EC2::EIP
-      Properties:
-        Domain: vpc
-
-    NatGateway1:
-      Type: AWS::EC2::NatGateway
-      Properties:
-        AllocationId: !GetAtt ElasticIP1.AllocationId
-        SubnetId: !Ref PublicSubnet1
-
-    NatGateway2:
-      Type: AWS::EC2::NatGateway
-      Properties:
-        AllocationId: !GetAtt ElasticIP2.AllocationId
-        SubnetId: !Ref PublicSubnet2
-
-    AttachGateway:
-      Type: AWS::EC2::VPCGatewayAttachment
-      Properties:
-        VpcId: !Ref CustomVPC
-        InternetGatewayId: !Ref InternetGateway
-
-    PublicRouteTable:
-      Type: AWS::EC2::RouteTable
-      Properties:
-        VpcId: !Ref CustomVPC
-
-    PrivateRouteTable:
-      Type: AWS::EC2::RouteTable
-      Properties:
-        VpcId: !Ref CustomVPC
-
-    RouteTrafficToIGW:
-      Type: AWS::EC2::Route
-      DependsOn:
-        - AttachGateway
-        - InternetGateway
-      Properties:
-        RouteTableId: !Ref PublicRouteTable
-        DestinationCidrBlock: 0.0.0.0/0
-        GatewayId: !Ref InternetGateway
-
-    RouteTrafficToNAT:
-      Type: AWS::EC2::Route
-      DependsOn:
-        - NatGateway1
-        - NatGateway2
-        - PrivateSubnet1
-        - PrivateSubnet2
-      Properties:
-        RouteTableId: !Ref PrivateRouteTable
-        NatGatewayId:
-          - !Ref NatGateway1
-          - !Ref NatGateway2
-        DestinationCidrBlock: 0.0.0.0/0
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CustomVPC
+      InternetGatewayId: !Ref InternetGateway
 
 
-    PublicSubnetRouteTableAssociation:
-      Type: AWS::EC2::SubnetRouteTableAssociation
-      Properties:
-        SubnetId: !Ref PublicSubnet1
-        RouteTableId: !Ref PublicRouteTable
+  ElasticIP1:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
 
-    PublicSubnetRouteTableAssociation2:
-      Type: AWS::EC2::SubnetRouteTableAssociation
-      Properties:
-        SubnetId: !Ref PublicSubnet2
-        RouteTableId: !Ref PublicRouteTable
+  ElasticIP2:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
 
-    PrivateSubnetRouteTableAssociation:
-      Type: AWS::EC2::SubnetRouteTableAssociation
-      Properties:
-        SubnetId: !Ref PrivateSubnet1
-        RouteTableId: !Ref PrivateRouteTable
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: NatGateway-AZ1
 
-    PrivateSubnetRouteTableAssociation2:
-      Type: AWS::EC2::SubnetRouteTableAssociation
-      Properties:
-        SubnetId: !Ref PrivateSubnet2
-        RouteTableId: !Ref PrivateRouteTable
-
-    InstanceSecurityGroup1:
-      Type: AWS::EC2::SecurityGroup
-      Properties:
-        GroupDescription: Security Group for EC2 Instances
-        VpcId: !Ref CustomVPC
-        SecurityGroupIngress:
-          - IpProtocol: http
-            FromPort: 80
-            ToPort: 80
-            CidrIp: 0.0.0.0/0
-
-          - IpProtocol: tcp
-            ToPort: 22
-            CidrIp: 0.0.0.0/0
-
-    EC2Instance1:
-      Type: AWS::EC2::Instance
-      Properties:
-        InstanceType: t2.micro
-        ImageId: !Ref ami
-        SubnetId: !Ref PublicSubnet1
-        Tags:
-          - Key: Name
-            Value: !Ref ec2InstanceName1
-        SecurityGroupIds:
-          - !Ref InstanceSecurityGroup1
-        IamInstanceProfile: !Ref InstanceProfile
-
-    EC2Instance2:
-      Type: AWS::EC2::Instance
-      Properties:
-        InstanceType: t2.micro
-        ImageId: !Ref ami
-        SubnetId: !Ref PublicSubnet2
-        Tags:
-          - Key: Name
-            Value: !Ref ec2InstanceName2
-        SecurityGroupIds:
-          - !Ref InstanceSecurityGroup1
-        IamInstanceProfile: !Ref InstanceProfile
-
-    EC2Instance3:
-      Type: AWS::EC2::Instance
-      Properties:
-        InstanceType: t2.micro
-        ImageId: !Ref ami
-        SubnetId: !Ref PrivateSubnet1
-        Tags:
-          - Key: Name
-            Value: !Ref ec2InstanceName3
-        SecurityGroupIds:
-          - !Ref InstanceSecurityGroup
-        IamInstanceProfile: !Ref InstanceProfile
-
-    EC2Instance4:
-      Type: AWS::EC2::Instance
-      Properties:
-        InstanceType: t2.micro
-        ImageId: !Ref ami
-        SubnetId: !Ref PrivateSubnet2
-        Tags:
-          - Key: Name
-            Value: !Ref ec2InstanceName4
-        SecurityGroupIds:
-          - !Ref InstanceSecurityGroup
-        IamInstanceProfile: !Ref InstanceProfile
-
-    SystemsManagerIAMRole:
-      Type: AWS::IAM::Role
-      Properties:
-        AssumeRolePolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Principal:
-                Service:
-                  - ec2.amazonaws.com
-              Action:
-                - 'sts:AssumeRole'
-        ManagedPolicyArns:
-          - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: NatGateway-AZ2
 
 
-    SystemsManagerIntegration:
-      Type: AWS::SSM::Association
-      Properties:
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
 
+  RouteTrafficToIGW:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable-AZ1
+
+  RoutePrivateToNAT1:
+    Type: AWS::EC2::Route
+    DependsOn: NatGateway1
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1   # FIX: single value only (not a list)
+
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustomVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable-AZ2
+
+  RoutePrivateToNAT2:
+    Type: AWS::EC2::Route
+    DependsOn: NatGateway2
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2   # routes through AZ2's NAT — no cross-AZ dependency
+
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+
+  PublicInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Public EC2 instances - HTTP and ICMP only. No SSH.'
+      VpcId: !Ref CustomVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow inbound HTTP from internet'
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16
+          Description: 'Allow ICMP (ping) from within VPC'
+      Tags:
+        - Key: Name
+          Value: PublicInstanceSG
+
+  PrivateInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Private EC2 instances - ICMP from VPC only. No SSH, no HTTP from internet.'
+      VpcId: !Ref CustomVPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16
+          Description: 'Allow ICMP (ping) from within VPC'
+      Tags:
+        - Key: Name
+          Value: PrivateInstanceSG
+
+  SystemsManagerIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EC2SystemsManagerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: EC2SystemsManagerRole
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: EC2SystemsManagerInstanceProfile
+      Roles:
+        - !Ref SystemsManagerIAMRole
+
+
+  EC2Instance1:
+    Type: AWS::EC2::Instance
+    DependsOn: AttachGateway
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref ami
+      SubnetId: !Ref PublicSubnet1
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref PublicInstanceSecurityGroup
+      UserData:
+        Fn::Base64: |-
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          cat > /var/www/html/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Lab Server - AZ1</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 60px; background: #f4f4f4; }
+              .card { background: white; padding: 40px; border-radius: 8px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+              h1 { color: #232f3e; }
+              p  { color: #555; font-size: 1.1em; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>Silas Kumi</h1>
+              <p><strong>Lab:</strong> Highly Available Multi-AZ VPC</p>
+              <p><strong>Instance:</strong> Public Web Server - AZ1</p>
+            </div>
+          </body>
+          </html>
+          EOF
+      Tags:
+        - Key: Name
+          Value: !Ref ec2InstanceName1
+
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    DependsOn: AttachGateway
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref ami
+      SubnetId: !Ref PublicSubnet2
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref PublicInstanceSecurityGroup
+      UserData:
+        Fn::Base64: |-
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          cat > /var/www/html/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Lab Server - AZ2</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 60px; background: #f4f4f4; }
+              .card { background: white; padding: 40px; border-radius: 8px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+              h1 { color: #232f3e; }
+              p  { color: #555; font-size: 1.1em; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>Silas Kumi</h1>
+              <p><strong>Lab:</strong> Highly Available Multi-AZ VPC</p>
+              <p><strong>Instance:</strong> Public Web Server - AZ2</p>
+            </div>
+          </body>
+          </html>
+          EOF
+      Tags:
+        - Key: Name
+          Value: !Ref ec2InstanceName2
+
+  EC2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref ami
+      SubnetId: !Ref PrivateSubnet1
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref PrivateInstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Ref ec2InstanceName3
+
+  EC2Instance4:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref ami
+      SubnetId: !Ref PrivateSubnet2
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref PrivateInstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Ref ec2InstanceName4
+
+  SystemsManagerIntegration:
+    Type: AWS::SSM::Association
+    Properties:
+      Name: AWS-UpdateSSMAgent
+      Targets:
+        - Key: tag:aws:cloudformation:stack-name
+          Values:
+            - !Ref AWS::StackName
+      ScheduleExpression: 'rate(14 days)'
+
+
+Outputs:
+  VPCId:
+    Description: 'VPC ID'
+    Value: !Ref CustomVPC
+
+  PublicInstance1Id:
+    Description: 'Public EC2 Instance 1 (AZ1) — open this IP in a browser'
+    Value: !GetAtt EC2Instance1.PublicIp
+
+  PublicInstance2Id:
+    Description: 'Public EC2 Instance 2 (AZ2) — open this IP in a browser'
+    Value: !GetAtt EC2Instance2.PublicIp
+
+  PrivateInstance1Id:
+    Description: 'Private EC2 Instance 3 (AZ1) — access via Session Manager only'
+    Value: !Ref EC2Instance3
+
+  PrivateInstance2Id:
+    Description: 'Private EC2 Instance 4 (AZ2) — access via Session Manager only'
+    Value: !Ref EC2Instance4
+
+  SSMRoleArn:
+    Description: 'IAM Role ARN used by all EC2 instances for SSM access'
+    Value: !GetAtt SystemsManagerIAMRole.Arn
