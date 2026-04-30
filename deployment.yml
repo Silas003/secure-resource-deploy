@@ -1,5 +1,10 @@
-template-path: templates/resources.yml
-stack-name: secure-resource-deploy
-
-tag:
-  managedBy: CloudFormation-GitSync
+template-file-path: templates/resources.yml
+parameters:
+  ec2InstanceName1: PublicInstance-AZ1
+  ec2InstanceName2: PublicInstance-AZ2
+  ec2InstanceName3: PrivateInstance-AZ1
+  ec2InstanceName4: PrivateInstance-AZ2
+  azName1: eu-west-3a
+  azName2: eu-west-3b
+  ami: ami-0f61de2873e29e866
+tags: {}
