@@ -1,5 +1,5 @@
-template-path: templates/resources.yml
+template-file-path: templates/resources.yml
 stack-name: secure-resource-deploy
 
-tag:
-  managedBy: CloudFormation-GitSync
+tags:
+  ManagedBy: CloudFormation-GitSync
